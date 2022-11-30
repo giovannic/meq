@@ -1,5 +1,58 @@
 fn main() {
     println!("Hello, world!");
+    let p = Parameters {
+        EIR: 33.,
+        ft: 0.,
+        eta: 0.0001305,
+        rho: 0.85,
+        a0: 2920.,
+        s2: 1.67,
+        rA: 0.00512821,
+        rT: 0.2,
+        rD: 0.2,
+        rU: 0.00906627,
+        rP: 0.2,
+        dE: 12.,
+        tl: 12.5,
+        cD: 0.0676909,
+        cT: 0.0034482,
+        cU: 0.006203,
+        g_inf:	1.82425,
+        d1: 0.160527,
+        dd: 3650.,
+        ID0: 1.577533,
+        kd: 0.476614,
+        ud: 9.44512,
+        ad0: 8001.99,
+        fd0: 0.007055,
+        gd: 4.8183,
+        aA: 0.757,
+        aU: 0.186,
+        b0: 0.590076,
+        b1: 0.5,
+        db: 3650.,
+        IB0: 43.8787,
+        kb: 2.15506,
+        ub: 7.19919,
+        phi0: 0.791666,
+        phi1: 0.000737,
+        dc: 10950.,
+        IC0: 18.02366,
+        kc: 2.36949,
+        uc: 6.06349,
+        PM: 0.774368,
+        dm: 67.6952,
+        tau: 10.,
+        mu: 0.132,
+        f: 0.33333333,
+        Q0: 0.92,
+    };
+    let ages = Vec::from_iter((1..=100).map(f64::from));
+    let nodes :Vec<f64> = vec![-4.8594628, -3.5818235, -2.4843258, -1.4659891, -0.4849357, 0.4849357, 1.4659891, 2.4843258, 3.5818235, 4.8594628];
+    let weights :Vec<f64> = vec![4.310653e-06, 7.580709e-04, 1.911158e-02, 1.354837e-01, 3.446423e-01, 3.446423e-01, 1.354837e-01, 1.911158e-02, 7.580709e-04, 4.310653e-06];
+    let pop = Population::new(&ages, &nodes, &weights);
+    let solution = equilibrium(&p, &pop);
+    print!("{:.5}", pfpr210(&solution));
 }
 
 struct Parameters {
@@ -67,7 +120,6 @@ struct Parameters {
 }
 
 struct Population {
-    age: Vec<f64>,
     ghnodes: Vec<f64>,
     ghweights: Vec<f64>,
     na: usize,
@@ -75,12 +127,57 @@ struct Population {
     age20: usize,
 
     // ageing
-    age_days: Vec<f64>,
     age_days_midpoint: Vec<f64>,
     r: Vec<f64>,
+}
 
-    // EIR scaling
-    zeta: Vec<f64>,
+impl Population {
+    pub fn new(age: &Vec<f64>, nodes: &Vec<f64>, weights: &Vec<f64>) -> Self {
+
+        //initialise ages and midpoints and 20 age group
+        let na = age.len();
+        let mut age_days :Vec<f64> = vec![0.;na];
+        for i in 0..na {
+            age_days[i] = age[i] * 365.;
+        }
+        let mut age_days_midpoint :Vec<f64> = vec![0.;na];
+        for i in 0..na {
+            if i == (na - 1) {
+                age_days_midpoint[i] = age_days[i];
+            } else {
+                age_days_midpoint[i] = (age_days[i] + age_days[i+1]) * 0.5;
+            }
+        }
+
+        // calculate age group of 20 year old
+        let mut age20 = 0;
+        for i in 0..na {
+            if i < (na-1) && age_days_midpoint[i]<=20.*365. && age_days_midpoint[i+1]>20.*365. {
+                age20 = i;
+                break;
+            }
+        }
+
+        // get rate of ageing in each group
+        let mut r :Vec<f64> = vec![0.;na];
+        for i in 0..na {
+            r[i] = if i==(na-1) { 0. } else { 1./(age_days[i+1]-age_days[i]) };
+        }
+
+        let nh = nodes.len();
+
+        Self {
+            ghnodes: nodes.clone(),
+            ghweights: weights.clone(),
+            na: na,
+            nh: nh,
+            age20: age20,
+
+            // ageing
+            age_days_midpoint: age_days_midpoint,
+            r: r
+        }
+    }
 }
 
 struct Solution {
@@ -120,11 +217,15 @@ impl Solution {
     }
 }
 
+fn pfpr210(solution: &Solution) -> f64 {
+    solution.pos_M[2..=10].iter().sum::<f64>() / solution.prop[2..=10].iter().sum::<f64>()
+}
+
 fn equilibrium(p: &Parameters, pop: &Population) -> Solution {
     //initialise some vectors
-    let mut prop: Vec<f64> = Vec::with_capacity(pop.na);
-    let mut psi: Vec<f64> = Vec::with_capacity(pop.na);
-    let mut zeta: Vec<f64> = Vec::with_capacity(pop.nh);
+    let mut prop: Vec<f64> = vec![0.;pop.na];
+    let mut psi: Vec<f64> = vec![0.;pop.na];
+    let mut zeta: Vec<f64> = vec![0.;pop.nh];
 
     // calculate proportion and relative biting rate in each age group
     for i in 0..pop.na {
@@ -142,30 +243,28 @@ fn equilibrium(p: &Parameters, pop: &Population) -> Solution {
     }
 
     // loop through Gaussian quadrature nodes
-    let FOIM = 0.;
-
-    let mut solution = Solution::new();
+    let mut solution = Solution::new(pop.na);
     for i in 0..pop.nh {
 
         // calculate immunity functions and onward infectiousness at equilibrium for 
         let mut IB = 0.;
         let mut IC = 0.;
         let mut ID = 0.;
-        let mut FOI :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut ICA :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut ICM :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut phi:Vec<f64> = Vec::with_capacity(pop.na);
-        let mut q :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut cA :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut S :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut T :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut D :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut A :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut U :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut P :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut pos_M :Vec<f64> = Vec::with_capacity(pop.na);
-        let mut inc:Vec<f64> = Vec::with_capacity(pop.na);
-        let mut inf:Vec<f64> = Vec::with_capacity(pop.na);
+        let mut FOI :Vec<f64> = vec![0.;pop.na];
+        let mut ICA :Vec<f64> = vec![0.;pop.na];
+        let mut ICM :Vec<f64> = vec![0.;pop.na];
+        let mut phi:Vec<f64> = vec![0.;pop.na];
+        let mut q :Vec<f64> = vec![0.;pop.na];
+        let mut cA :Vec<f64> = vec![0.;pop.na];
+        let mut S :Vec<f64> = vec![0.;pop.na];
+        let mut T :Vec<f64> = vec![0.;pop.na];
+        let mut D :Vec<f64> = vec![0.;pop.na];
+        let mut A :Vec<f64> = vec![0.;pop.na];
+        let mut U :Vec<f64> = vec![0.;pop.na];
+        let mut P :Vec<f64> = vec![0.;pop.na];
+        let mut pos_M :Vec<f64> = vec![0.;pop.na];
+        let mut inc:Vec<f64> = vec![0.;pop.na];
+        let mut inf:Vec<f64> = vec![0.;pop.na];
 
         // all age groups
         for j in 0..pop.na {
@@ -174,7 +273,7 @@ fn equilibrium(p: &Parameters, pop: &Population) -> Solution {
             let re = pop.r[j] + p.eta;
 
             // update pre-erythrocytic immunity IB
-            let eps = pop.zeta[i] * p.EIR/365. * psi[j];
+            let eps = zeta[i] * p.EIR/365. * psi[j];
             IB = (eps/(eps*p.ub+1.) + re*IB)/(1./p.db+re);
 
             // calculate probability of infection from pre-erythrocytic immunity IB via
@@ -271,7 +370,7 @@ fn equilibrium(p: &Parameters, pop: &Population) -> Solution {
         }
 
         // add to sums over nodes
-        let delta_FOIM = 0.;
+        let mut delta_foim = 0.;
         for j in 0..pop.na {
             solution.S[j] += pop.ghweights[i]*S[j];
             solution.T[j] += pop.ghweights[i]*T[j];
@@ -283,14 +382,15 @@ fn equilibrium(p: &Parameters, pop: &Population) -> Solution {
             solution.pos_M[j] += pop.ghweights[i]*pos_M[j];
             solution.inc[j] += pop.ghweights[i]*inc[j];
 
-            delta_FOIM += inf[j]*psi[j];
+            delta_foim += inf[j]*psi[j];
         }
-        solution.FOIM += delta_FOIM*pop.ghweights[i]*zeta[i];
+        solution.FOIM += delta_foim*pop.ghweights[i]*zeta[i];
 
     }  // end loop over nodes
 
     // complete overall force of infection on mosquitoes
     solution.FOIM *= p.f*p.Q0/(1. - p.rho*p.eta/(p.eta+1./p.a0));
+    solution.prop = prop;
 
     solution
 }
