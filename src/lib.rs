@@ -1,4 +1,7 @@
-fn main() {
+use pyo3::prelude::*;
+
+#[pyfunction]
+fn print_default_pfpr() {
     println!("Hello, world!");
     let p = Parameters {
         EIR: 33.,
@@ -393,4 +396,11 @@ fn equilibrium(p: &Parameters, pop: &Population) -> Solution {
     solution.prop = prop;
 
     solution
+}
+
+#[pymodule]
+fn meq(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(print_default_pfpr, m)?)?;
+
+    Ok(())
 }
