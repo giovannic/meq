@@ -1,9 +1,18 @@
 use pyo3::prelude::*;
 
 #[pyfunction]
-fn print_default_pfpr() {
-    println!("Hello, world!");
-    let p = Parameters {
+fn solve(p: &Parameters) -> Solution {
+    let ages = Vec::from_iter((1..=100).map(f64::from));
+    let nodes :Vec<f64> = vec![-4.8594628, -3.5818235, -2.4843258, -1.4659891, -0.4849357, 0.4849357, 1.4659891, 2.4843258, 3.5818235, 4.8594628];
+    let weights :Vec<f64> = vec![4.310653e-06, 7.580709e-04, 1.911158e-02, 1.354837e-01, 3.446423e-01, 3.446423e-01, 1.354837e-01, 1.911158e-02, 7.580709e-04, 4.310653e-06];
+    let pop = Population::new(&ages, &nodes, &weights);
+    let solution = equilibrium(&p, &pop);
+    solution
+}
+
+#[pyfunction]
+fn default_parameters() -> Parameters {
+    Parameters {
         EIR: 33.,
         ft: 0.,
         eta: 0.0001305,
@@ -49,76 +58,117 @@ fn print_default_pfpr() {
         mu: 0.132,
         f: 0.33333333,
         Q0: 0.92,
-    };
-    let ages = Vec::from_iter((1..=100).map(f64::from));
-    let nodes :Vec<f64> = vec![-4.8594628, -3.5818235, -2.4843258, -1.4659891, -0.4849357, 0.4849357, 1.4659891, 2.4843258, 3.5818235, 4.8594628];
-    let weights :Vec<f64> = vec![4.310653e-06, 7.580709e-04, 1.911158e-02, 1.354837e-01, 3.446423e-01, 3.446423e-01, 1.354837e-01, 1.911158e-02, 7.580709e-04, 4.310653e-06];
-    let pop = Population::new(&ages, &nodes, &weights);
-    let solution = equilibrium(&p, &pop);
-    print!("{:.5}", pfpr210(&solution));
+    }
 }
 
+
+#[pyclass]
 struct Parameters {
+    #[pyo3(get, set)]
     EIR: f64,
+    #[pyo3(get, set)]
     ft: f64,
 
     // age, heterogeneity in exposure
+    #[pyo3(get, set)]
     eta: f64,
+    #[pyo3(get, set)]
     rho: f64,
+    #[pyo3(get, set)]
     a0: f64,
+    #[pyo3(get, set)]
     s2: f64,
 
     // rate of leaving infection states
+    #[pyo3(get, set)]
     rA: f64,
+    #[pyo3(get, set)]
     rT: f64,
+    #[pyo3(get, set)]
     rD: f64,
+    #[pyo3(get, set)]
     rU: f64,
+    #[pyo3(get, set)]
     rP: f64,
 
     // human latent period and time lag from asexual parasites to infectiousness
+    #[pyo3(get, set)]
     dE: f64,
+    #[pyo3(get, set)]
     tl: f64,
 
     // infectiousness to mosquitoes
+    #[pyo3(get, set)]
     cD: f64,
+    #[pyo3(get, set)]
     cT: f64,
+    #[pyo3(get, set)]
     cU: f64,
+    #[pyo3(get, set)]
     g_inf: f64,
 
     // anti-parasite immunity
+    #[pyo3(get, set)]
     d1: f64,
+    #[pyo3(get, set)]
     dd: f64,
+    #[pyo3(get, set)]
     ID0: f64,
+    #[pyo3(get, set)]
     kd: f64,
+    #[pyo3(get, set)]
     ud: f64,
+    #[pyo3(get, set)]
     ad0: f64,
+    #[pyo3(get, set)]
     fd0: f64,
+    #[pyo3(get, set)]
     gd: f64,
+    #[pyo3(get, set)]
     aA: f64,
+    #[pyo3(get, set)]
     aU: f64,
 
     // anti-infection immunity
+    #[pyo3(get, set)]
     b0: f64,
+    #[pyo3(get, set)]
     b1: f64,
+    #[pyo3(get, set)]
     db: f64,
+    #[pyo3(get, set)]
     IB0: f64,
+    #[pyo3(get, set)]
     kb: f64,
+    #[pyo3(get, set)]
     ub: f64,
 
     // clinical immunity
+    #[pyo3(get, set)]
     phi0: f64,
+    #[pyo3(get, set)]
     phi1: f64,
+    #[pyo3(get, set)]
     dc: f64,
+    #[pyo3(get, set)]
     IC0: f64,
+    #[pyo3(get, set)]
     kc: f64,
+    #[pyo3(get, set)]
     uc: f64,
+    #[pyo3(get, set)]
     PM: f64,
+    #[pyo3(get, set)]
     dm: f64,
 
     // mosquito parameters
+    #[pyo3(get, set)]
     tau: f64,
+    #[pyo3(get, set)]
     mu: f64,
+    #[pyo3(get, set)]
     f: f64,
+    #[pyo3(get, set)]
     Q0: f64,
 }
 
@@ -183,6 +233,7 @@ impl Population {
     }
 }
 
+#[pyclass]
 struct Solution {
     S: Vec<f64>,
     T: Vec<f64>,
@@ -191,8 +242,11 @@ struct Solution {
     U: Vec<f64>,
     P: Vec<f64>,
 
+    #[pyo3(get)]
     prop: Vec<f64>,
+    #[pyo3(get)]
     pos_M: Vec<f64>,
+    #[pyo3(get)]
     inc: Vec<f64>,
 
     ICA: Vec<f64>,
@@ -400,7 +454,10 @@ fn equilibrium(p: &Parameters, pop: &Population) -> Solution {
 
 #[pymodule]
 fn meq(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(print_default_pfpr, m)?)?;
+    m.add_class::<Solution>()?;
+    m.add_class::<Parameters>()?;
+    m.add_function(wrap_pyfunction!(solve, m)?)?;
+    m.add_function(wrap_pyfunction!(default_parameters, m)?)?;
 
     Ok(())
 }
